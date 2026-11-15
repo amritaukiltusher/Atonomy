@@ -10,10 +10,10 @@ const EYE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stro
 const ACCENT = new THREE.Color('#4de1ff');
 
 const PRESETS = [
-  { id: 'full', name: 'Overview', sys: { skin: 0.22, skeleton: 1, muscles: 0, organs: 1, vessels: 0.0, nerves: 0 }, cam: { t: [0, 0.8, 0], d: 3.7 } },
-  { id: 'skin', name: 'Surface', sys: { skin: 1, skeleton: 0, muscles: 0, organs: 0, vessels: 0, nerves: 0 }, cam: { t: [0, 0.8, 0], d: 3.7 } },
-  { id: 'muscles', name: 'Muscles', sys: { skin: 0, skeleton: 0.0, muscles: 1, organs: 0, vessels: 0, nerves: 0 }, cam: { t: [0, 0.8, 0], d: 3.7 } },
-  { id: 'skeleton', name: 'Skeleton', sys: { skin: 0.08, skeleton: 1, muscles: 0, organs: 0, vessels: 0, nerves: 0 }, cam: { t: [0, 0.8, 0], d: 3.7 } },
+  { id: 'full', name: 'Overview', sys: { skin: 0.22, skeleton: 1, muscles: 0, organs: 1, vessels: 0.0, nerves: 0 }, cam: { t: [0, 0.86, 0], d: 4.3 } },
+  { id: 'skin', name: 'Surface', sys: { skin: 1, skeleton: 0, muscles: 0, organs: 0, vessels: 0, nerves: 0 }, cam: { t: [0, 0.86, 0], d: 4.3 } },
+  { id: 'muscles', name: 'Muscles', sys: { skin: 0, skeleton: 0.0, muscles: 1, organs: 0, vessels: 0, nerves: 0 }, cam: { t: [0, 0.86, 0], d: 4.3 } },
+  { id: 'skeleton', name: 'Skeleton', sys: { skin: 0.08, skeleton: 1, muscles: 0, organs: 0, vessels: 0, nerves: 0 }, cam: { t: [0, 0.86, 0], d: 4.3 } },
   { id: 'organs', name: 'Organs', sys: { skin: 0.1, skeleton: 0.18, muscles: 0, organs: 1, vessels: 0, nerves: 0 }, cam: { t: [0, 1.15, 0], d: 2.1 } },
   { id: 'circ', name: 'Circulatory', sys: { skin: 0.08, skeleton: 0.12, muscles: 0, organs: 1, vessels: 1, nerves: 0 }, filter: (s) => s.system === 'vessels' || s.category === 'Cardiovascular' || s.system === 'skeleton' || s.system === 'skin', cam: { t: [0, 1.0, 0], d: 3.0 } },
   { id: 'nerv', name: 'Nervous', sys: { skin: 0.08, skeleton: 0.12, muscles: 0, organs: 1, vessels: 0, nerves: 1 }, filter: (s) => s.system === 'nerves' || s.category === 'Neurological' || s.system === 'skeleton' || s.system === 'skin', cam: { t: [0, 1.0, 0], d: 3.0 } },
@@ -53,14 +53,14 @@ export class Atlas {
     r.localClippingEnabled = false;
     this.scene = new THREE.Scene();
     this.camera = new THREE.PerspectiveCamera(32, 1, 0.02, 60);
-    this.camera.position.set(0, 1.1, 3.6);
+    this.camera.position.set(0, 1.1, 4.3);
 
     this.controls = new OrbitControls(this.camera, this.canvas);
     this.controls.enableDamping = true;
     this.controls.dampingFactor = 0.08;
     this.controls.minDistance = 0.18;
     this.controls.maxDistance = 7;
-    this.controls.target.set(0, 0.92, 0);
+    this.controls.target.set(0, 0.86, 0);
     this.controls.autoRotateSpeed = 1.2;
     this.controls.addEventListener('start', () => { this.camGoal = null; });
 
@@ -100,6 +100,11 @@ export class Atlas {
     if (!w || !h) return;
     this.renderer.setSize(w, h, false);
     this.camera.aspect = w / h;
+    // Centre the scene in the area above the floating toolbar, so the feet are never hidden behind it.
+    const bar = this.$('atlas-toolbar');
+    const covered = bar && bar.offsetHeight ? Math.min(bar.offsetHeight + 20, h * 0.4) : 0;
+    if (covered) this.camera.setViewOffset(w, h, 0, Math.round(covered / 2), w, h);
+    else this.camera.clearViewOffset();
     this.camera.updateProjectionMatrix();
   }
 

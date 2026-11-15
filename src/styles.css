@@ -242,6 +242,7 @@ input[type="range"]:disabled { opacity: 0.35; }
 .card-note { background: rgba(60, 44, 10, 0.9); border: 1px solid #b8892b; color: #ffe2a3 !important; padding: 10px 14px; border-radius: 10px; font-size: 13px; text-align: left; }
 @media (max-width: 800px) {
   .stage-card h2 { font-size: 21px; }
+  .hint { display: none; }
   .live-status { font-size: 13px; }
   .stage-empty { padding: 14px; }
 }
