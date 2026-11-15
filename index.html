@@ -87,10 +87,12 @@
             <div class="stage-card">
               <h2>See inside your own head</h2>
               <p>Point your webcam at your face. The skull, brain, jaw and eyes follow you in real time — open your mouth and the jaw opens, hold up a hand and its bones appear.</p>
+              <p class="card-note" id="inapp-note" hidden>You seem to be inside an app's built-in browser, which often blocks the camera. If “Start camera” doesn't work, open this page in Chrome or Safari.</p>
               <div class="cta">
                 <button class="btn primary" id="btn-start">Start camera</button>
                 <button class="btn" id="btn-demo">Try demo (no camera)</button>
               </div>
+              <p class="card-error" id="card-error" role="alert" hidden></p>
               <p class="fine">Video is processed on your device and never uploaded. Tracking models are downloaded once from Google's MediaPipe CDN.</p>
             </div>
           </div>

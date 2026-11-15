@@ -197,7 +197,7 @@ input[type="range"]:disabled { opacity: 0.35; }
 .stage-card .fine, .fine { font-size: 12px; color: var(--dim); }
 .cta { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin-bottom: 16px; }
 .cta .btn { padding: 11px 20px; }
-.live-status { position: absolute; left: 12px; top: 12px; z-index: 2; font: 12px var(--mono); color: var(--accent); background: rgba(8, 12, 18, 0.8); border: 1px solid rgba(77, 225, 255, 0.4); padding: 6px 10px; border-radius: 8px; max-width: calc(100% - 24px); }
+.live-status { position: absolute; left: 12px; top: 12px; z-index: 5; font: 12px var(--mono); color: var(--accent); background: rgba(8, 12, 18, 0.8); border: 1px solid rgba(77, 225, 255, 0.4); padding: 6px 10px; border-radius: 8px; max-width: calc(100% - 24px); }
 .live-error { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 4; background: rgba(40, 14, 18, 0.95); border: 1px solid var(--danger); color: #ffc6cc; padding: 10px 14px; border-radius: 10px; max-width: min(560px, calc(100% - 24px)); font-size: 13px; }
 .live-panel { width: 280px; flex: none; border-left: 1px solid var(--line); padding: 14px; gap: 16px; }
 .layer { display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: center; padding: 3px 0; color: var(--muted); }
@@ -233,3 +233,15 @@ input[type="range"]:disabled { opacity: 0.35; }
   .credit { white-space: normal; }
 }
 @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition: none !important; } }
+
+/* live: loading feedback and errors that phones can't miss */
+.live-status.busy::before { content: ''; display: inline-block; width: 10px; height: 10px; margin-right: 8px; border: 2px solid rgba(77, 225, 255, 0.35); border-top-color: var(--accent); border-radius: 50%; vertical-align: -1px; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.card-error { background: rgba(40, 14, 18, 0.95); border: 1px solid var(--danger); color: #ffc6cc !important; padding: 10px 14px; border-radius: 10px; font-size: 13px; text-align: left; }
+.card-error[hidden], .card-note[hidden] { display: none; }
+.card-note { background: rgba(60, 44, 10, 0.9); border: 1px solid #b8892b; color: #ffe2a3 !important; padding: 10px 14px; border-radius: 10px; font-size: 13px; text-align: left; }
+@media (max-width: 800px) {
+  .stage-card h2 { font-size: 21px; }
+  .live-status { font-size: 13px; }
+  .stage-empty { padding: 14px; }
+}

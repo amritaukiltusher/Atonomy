@@ -16,6 +16,15 @@ const BS_KEYS = ['jawOpen', 'jawForward', 'jawLeft', 'jawRight',
   'eyeLookInRight', 'eyeLookOutRight', 'eyeLookUpRight', 'eyeLookDownRight'];
 
 const $ = (id) => document.getElementById(id);
+
+const UA = navigator.userAgent || '';
+const IS_MOBILE = /Android|iPhone|iPad|iPod/i.test(UA) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(UA));
+/** In-app browsers (Facebook, Instagram, Messenger, LINE, WeChat, TikTok...) very often block the camera. */
+const IN_APP = /FBAN|FBAV|FB_IAB|Instagram|Line\/|MicroMessenger|Snapchat|TikTok|musical_ly|LinkedInApp|Twitter/i.test(UA);
+const withTimeout = (promise, ms, label) => Promise.race([
+  promise,
+  new Promise((_, reject) => setTimeout(() => reject(Object.assign(new Error(`${label} is taking too long`), { name: 'TimeoutError' })), ms)),
+]);
 const store = {
   get(k, d) { try { const v = localStorage.getItem(`anatomy-live:${k}`); return v === null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem(`anatomy-live:${k}`, JSON.stringify(v)); } catch { /* storage may be unavailable */ } },
@@ -103,6 +112,7 @@ export class LiveScan {
     chk('opt-swap', 'swap');
     this.#applyMirror();
 
+    $('inapp-note').hidden = !IN_APP;
     $('btn-start').addEventListener('click', () => this.startCamera());
     $('btn-demo').addEventListener('click', () => this.startDemo());
     $('btn-stop').addEventListener('click', () => this.stop());
@@ -141,22 +151,46 @@ export class LiveScan {
   /* ───────── start / stop ───────── */
   async startCamera() {
     this.#error(null);
-    if (!navigator.mediaDevices?.getUserMedia) {
-      return this.#error('Camera access needs a secure page (https:// or localhost) and a browser that supports getUserMedia.');
+    if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+      return this.#error(IN_APP
+        ? 'This in-app browser does not allow camera access. Open this page in Chrome or Safari (use the ⋮ / share menu → "Open in browser").'
+        : 'Camera access needs a secure page (https:// or localhost) and a browser that supports getUserMedia.');
     }
     $('btn-start').disabled = true;
     try {
-      this.#status('Requesting camera…');
-      this.stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 }, facingMode: 'user' }, audio: false });
-      this.video.srcObject = this.stream;
-      await this.video.play();
+      this.phase = 'camera';
+      this.#status('Requesting camera… tap “Allow” when asked');
+      const video = IS_MOBILE
+        ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
+        : { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } };
+      try {
+        this.stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
+      } catch (err) {
+        if (err?.name !== 'OverconstrainedError' && err?.name !== 'NotFoundError') throw err;
+        this.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });   // any camera will do
+      }
       this.mode = 'camera';
+      const v = this.video;
+      v.muted = true; v.setAttribute('playsinline', ''); v.setAttribute('webkit-playsinline', '');
+      v.srcObject = this.stream;
+      await withTimeout(v.play(), 10000, 'The camera preview');
+      if (!v.videoWidth) await withTimeout(new Promise((res) => { v.onloadedmetadata = res; }), 8000, 'The camera preview');
       this.stage.classList.remove('demo');
-      this.video.style.display = '';
-      this.#resize(this.video.videoWidth || 1280, this.video.videoHeight || 720);
+      v.style.display = '';
+      this.#resize(v.videoWidth || 640, v.videoHeight || 480);
+      $('stage-empty').hidden = true;                    // show the live preview right away
+      $('btn-stop').disabled = false;
+
+      this.phase = 'anatomy';
+      this.#status('Camera on ✓   Loading 3D anatomy…');
       await this.#ensureRigs();
-      await this.#initTrackers();
+      if (this.mode !== 'camera') return;
+      this.phase = 'tracker';
+      this.#status('Camera on ✓   Anatomy ✓   Loading face tracker (first time ~10 MB)…');
+      await withTimeout(this.#initFace(), 120000, 'The face tracker download');
+      if (this.mode !== 'camera') return;
       this.#begin();
+      this.#initHandsInBackground();
     } catch (e) {
       console.error(e);
       this.#fail(e);
@@ -206,23 +240,38 @@ export class LiveScan {
   onShow() { this.visible = true; }
   onHide() { this.visible = false; if (this.mode) this.stop(); }
 
-  async #initTrackers() {
-    if (this.face && this.handLm) return;
-    this.#status('Loading tracking models (first run downloads ~15 MB)…');
+  async #trackerKit() {
+    if (this.kit) return this.kit;
     const { FilesetResolver, FaceLandmarker, HandLandmarker } = await import('@mediapipe/tasks-vision');
     const fileset = await FilesetResolver.forVisionTasks(`${BASE}wasm`);
-    const [faceUrl, handUrl] = await Promise.all([
-      pickModelUrl(`${BASE}models/mediapipe/face_landmarker.task`, FACE_URL),
-      pickModelUrl(`${BASE}models/mediapipe/hand_landmarker.task`, HAND_URL),
-    ]);
     const make = async (Cls, url, extra) => {
       for (const delegate of ['GPU', 'CPU']) {
         try { return await Cls.createFromOptions(fileset, { baseOptions: { modelAssetPath: url, delegate }, runningMode: 'VIDEO', ...extra }); }
         catch (e) { if (delegate === 'CPU') throw e; console.warn(`${Cls.name}: GPU delegate failed, retrying on CPU`, e); }
       }
     };
-    this.face = await make(FaceLandmarker, faceUrl, { numFaces: 1, outputFaceBlendshapes: true, outputFacialTransformationMatrixes: true });
-    this.handLm = await make(HandLandmarker, handUrl, { numHands: 2 });
+    return (this.kit = { FaceLandmarker, HandLandmarker, make });
+  }
+
+  async #initFace() {
+    if (this.face) return;
+    const { FaceLandmarker, make } = await this.#trackerKit();
+    const url = await pickModelUrl(`${BASE}models/mediapipe/face_landmarker.task`, FACE_URL);
+    this.face = await make(FaceLandmarker, url, { numFaces: 1, outputFaceBlendshapes: true, outputFacialTransformationMatrixes: true });
+  }
+
+  /** Hands load after the face is already tracking, so the first picture appears sooner on slow phones. */
+  #initHandsInBackground() {
+    if (this.handLm || this.handLoading) return;
+    this.handLoading = true;
+    (async () => {
+      const { HandLandmarker, make } = await this.#trackerKit();
+      const url = await pickModelUrl(`${BASE}models/mediapipe/hand_landmarker.task`, HAND_URL);
+      this.handLm = await make(HandLandmarker, url, { numHands: 2 });
+    })().catch((e) => {
+      console.warn('Hand tracker failed to load', e);
+      this.#toast('Hand tracking could not load — face tracking still works.');
+    }).finally(() => { this.handLoading = false; });
   }
 
   /* ───────── frame loop ───────── */
@@ -255,10 +304,14 @@ export class LiveScan {
       this.lastVideoT = v.currentTime;
       const ts = Math.max(performance.now(), this.lastTs + 1); this.lastTs = ts;
       const fr = this.face.detectForVideo(v, ts);
-      const hr = this.handLm.detectForVideo(v, ts);
-      this.lastFrame = { face: fr, hands: hr };
+      this.lastFrame.face = fr;
       this.#applyFace(fr, dt);
-      this.#applyHands(hr, dt);
+      // hands may still be loading; on phones run them every other frame to keep the frame rate up
+      if (this.handLm && (!IS_MOBILE || (this._n = (this._n || 0) + 1) % 2 === 0)) {
+        const hr = this.handLm.detectForVideo(v, ts);
+        this.lastFrame.hands = hr;
+        this.#applyHands(hr, dt);
+      }
     }
   }
 
@@ -413,17 +466,32 @@ export class LiveScan {
   }
 
   /* ───────── messages ───────── */
-  #status(msg) { const el = $('live-status'); el.hidden = !msg; el.textContent = msg || ''; }
-  #error(msg) { const el = $('live-error'); el.hidden = !msg; el.textContent = msg || ''; }
+  #status(msg) { const el = $('live-status'); el.hidden = !msg; el.textContent = msg || ''; el.classList.toggle('busy', /…/.test(msg || '')); }
+  /** Errors go inside the start card when it is showing (so phones can't miss them), otherwise float over the stage. */
+  #error(msg) {
+    const card = !$('stage-empty').hidden;
+    const a = $('live-error'), b = $('card-error');
+    a.hidden = !msg || card; a.textContent = msg || '';
+    b.hidden = !msg || !card; b.textContent = msg || '';
+  }
+  #toast(msg) { this.#status(msg); clearTimeout(this._toast); this._toast = setTimeout(() => { if (this.running) this.#status('Tracking — show your face to the camera'); }, 6000); }
   #fail(e) {
     this.stop(true);
+    $('btn-stop').disabled = true; $('btn-live-shot').disabled = true;
     $('stage-empty').hidden = false; this.#status(null);
     const name = e?.name || '';
-    let msg = `Something went wrong: ${e?.message || e}`;
-    if (name === 'NotAllowedError' || name === 'SecurityError') msg = 'Camera permission was denied. Allow camera access in your browser\'s address bar and try again — or use the demo.';
-    else if (name === 'NotFoundError' || name === 'OverconstrainedError') msg = 'No camera was found on this device. You can still try the demo.';
-    else if (name === 'NotReadableError') msg = 'The camera is in use by another app. Close it and try again.';
-    else if (/fetch|network|Failed to load|download/i.test(String(e?.message))) msg = 'Could not download the tracking models. Check your connection (they come from storage.googleapis.com) and try again.';
+    const where = { camera: 'starting the camera', anatomy: 'loading the 3D anatomy', tracker: 'loading the face tracker' }[this.phase] || 'starting';
+    let msg = `Something went wrong while ${where}: ${e?.message || e}`;
+    if (name === 'NotAllowedError' || name === 'SecurityError') {
+      msg = IN_APP
+        ? 'The camera is blocked in this in-app browser. Open this page in Chrome or Safari and allow the camera.'
+        : 'Camera permission was denied. Allow the camera for this site (address bar lock icon → Permissions; on iPhone: Settings → Safari → Camera) and try again — or use the demo.';
+    } else if (name === 'NotFoundError' || name === 'OverconstrainedError') msg = 'No camera was found on this device. You can still try the demo.';
+    else if (name === 'NotReadableError' || name === 'AbortError') msg = 'The camera is in use by another app or tab. Close it and try again.';
+    else if (name === 'TimeoutError') msg = `${e.message}. Check your connection and tap Start camera again.`;
+    else if (this.phase === 'tracker' || /fetch|network|Failed to load|download/i.test(String(e?.message))) {
+      msg = `Could not load the face tracker (${e?.message || 'unknown error'}). It downloads from storage.googleapis.com — check your connection and try again.`;
+    }
     this.#error(msg);
   }
 }
