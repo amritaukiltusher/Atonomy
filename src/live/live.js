@@ -69,7 +69,7 @@ export class LiveScan {
 
   /* ───────── setup ───────── */
   #initThree() {
-    const r = (this.renderer = new THREE.WebGLRenderer({ canvas: this.glCanvas, antialias: true, alpha: true, powerPreference: 'high-performance' }));
+    const r = (this.renderer = new THREE.WebGLRenderer({ canvas: this.glCanvas, antialias: !IS_MOBILE, alpha: true, powerPreference: 'high-performance' }));
     r.setClearColor(0x000000, 0);
     r.setPixelRatio(1);
     r.localClippingEnabled = true;
@@ -294,6 +294,7 @@ export class LiveScan {
 
   stop(keepUI = false) {
     this.runId++;
+    this.headT = this.headD = this.handT = this.handD = this.bodyT = this.bodyD = null;
     this.running = false;
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null; this.video.srcObject = null;
@@ -367,6 +368,7 @@ export class LiveScan {
       else this.#demo(now, dt);
     } catch (e) { console.error(e); this.#error(`Tracking error: ${e.message}`); this.running = false; return; }
 
+    this.#present(dt);
     this.#drawHud();
     this.renderer.render(this.scene, this.camera);
     if (((nowMs / 250) | 0) !== this._lastStat) {
@@ -408,7 +410,7 @@ export class LiveScan {
   #applyFace(fr, dt) {
     const lms = fr?.faceLandmarks?.[0];
     const mat = fr?.facialTransformationMatrixes?.[0];
-    if (!lms || !mat) { if (++this.lostFace > 6) this.head.group.visible = false; return; }
+    if (!lms || !mat) { if (++this.lostFace > 6) { this.head.group.visible = false; this.headD = null; } return; }
     this.lostFace = 0;
     const bsArr = fr.faceBlendshapes?.[0]?.categories;
     const bs = {}; if (bsArr) for (const c of bsArr) bs[c.categoryName] = c.score;
@@ -437,12 +439,12 @@ export class LiveScan {
     const q = quat.clone().multiply(fix);
     const qs = this.fQuat.filter(q, dt);
     const p = this.fPose.filter([fit.s, fit.tx, fit.ty, tz], dt, [0, 0, 0, 0]);
-    this.head.setPose(qs, p[0], new THREE.Vector3(p[1], p[2], p[3]));
+    this.headT = { q: qs.clone(), s: p[0], t: new THREE.Vector3(p[1], p[2], p[3]) };
     this.head.group.visible = true;
 
     const raw = BS_KEYS.map((k) => bs[k] || 0);
     const sm = this.fBS.filter(raw, dt, new Array(raw.length));
-    this.head.setExpression(Object.fromEntries(BS_KEYS.map((k, i) => [k, sm[i]])));
+    this.headT.bs = sm.slice();
     this.lastFit = { ...fit, q: qs.clone() };
   }
 
@@ -462,12 +464,11 @@ export class LiveScan {
       const { P } = handPointsFromMediaPipe(list[h], hr.worldLandmarks[h], TAN_V, this.W / this.H);
       const flat = new Array(63); P.forEach((p, i) => { flat[i * 3] = p.x; flat[i * 3 + 1] = p.y; flat[i * 3 + 2] = p.z; });
       const sm = this.fHand[key].filter(flat, dt, new Array(63));
-      const SP = P.map((p, i) => p.set(sm[i * 3], sm[i * 3 + 1], sm[i * 3 + 2]));
-      rig.update(SP);
+      (this.handT ||= {})[key] = { tgt: sm.slice(), P };
       rig.mesh.visible = true; this.lostHand[key] = 0;
     }
     for (const key of ['left', 'right']) {
-      if (!seen[key] && ++this.lostHand[key] > 5) { this.hands[key === 'left' ? 0 : 1].mesh.visible = false; this.fHand[key].reset(); }
+      if (!seen[key] && ++this.lostHand[key] > 5) { this.hands[key === 'left' ? 0 : 1].mesh.visible = false; this.fHand[key].reset(); if (this.handT) this.handT[key] = null; if (this.handD) this.handD[key] = null; }
     }
   }
 
@@ -476,13 +477,38 @@ export class LiveScan {
   #applyPose(pr, dt) {
     const lm = pr?.landmarks?.[0], wd = pr?.worldLandmarks?.[0];
     const res = lm && wd ? posePointsFromMediaPipe(lm, wd, TAN_V, this.W / this.H, this.opts.flipz, this.bodyPts) : null;
-    if (!res) { this.lostBody = (this.lostBody || 0) + dt; if (this.lostBody > 0.5) this.fBody.reset(); this.body.update(this.bodyPts, NO_VIS, dt); return; }
+    if (!res) { this.lostBody = (this.lostBody || 0) + dt; if (this.lostBody > 0.5) this.fBody.reset(); this.bodyT = null; this.bodyD = null; this.body.update(this.bodyPts, NO_VIS, dt); return; }
     this.lostBody = 0;
     const flat = new Array(99);
     res.P.forEach((p, i) => { flat[i * 3] = p.x; flat[i * 3 + 1] = p.y; flat[i * 3 + 2] = p.z; });
     this.fBody.filter(flat, dt, flat);
-    res.P.forEach((p, i) => p.set(flat[i * 3], flat[i * 3 + 1], flat[i * 3 + 2]));
-    this.body.update(res.P, res.vis, dt);
+    this.bodyT = { flat: flat.slice(), vis: res.vis, P: res.P };
+  }
+
+  /** Runs every display frame: eases what is drawn toward the latest tracked pose, so motion stays fluid
+   *  even when the camera/tracker delivers fewer updates than the screen refreshes. */
+  #present(dt) {
+    const a = 1 - Math.exp(-dt * 38);
+    const ease = (d, t) => { for (let i = 0; i < t.length; i++) d[i] += (t[i] - d[i]) * a; };
+    if (this.headT) {
+      const T = this.headT, D = (this.headD ||= { q: T.q.clone(), s: T.s, t: T.t.clone(), bs: T.bs.slice() });
+      D.q.slerp(T.q, a); D.s += (T.s - D.s) * a; D.t.lerp(T.t, a); ease(D.bs, T.bs);
+      this.head.setPose(D.q, D.s, D.t);
+      this.head.setExpression(Object.fromEntries(BS_KEYS.map((k, i) => [k, D.bs[i]])));
+    }
+    for (const key of ['left', 'right']) {
+      const T = this.handT?.[key]; if (!T) continue;
+      const D = ((this.handD ||= {})[key] ||= T.tgt.slice());
+      ease(D, T.tgt);
+      const SP = T.P.map((p, i) => p.set(D[i * 3], D[i * 3 + 1], D[i * 3 + 2]));
+      this.hands[key === 'left' ? 0 : 1].update(SP);
+    }
+    if (this.bodyT) {
+      const T = this.bodyT, D = (this.bodyD ||= T.flat.slice());
+      ease(D, T.flat);
+      T.P.forEach((p, i) => p.set(D[i * 3], D[i * 3 + 1], D[i * 3 + 2]));
+      this.body.update(T.P, T.vis, dt);
+    }
   }
 
   #demo(t, dt) {
