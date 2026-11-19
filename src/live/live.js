@@ -69,7 +69,7 @@ export class LiveScan {
 
   /* ───────── setup ───────── */
   #initThree() {
-    const r = (this.renderer = new THREE.WebGLRenderer({ canvas: this.glCanvas, antialias: true, alpha: true, preserveDrawingBuffer: true }));
+    const r = (this.renderer = new THREE.WebGLRenderer({ canvas: this.glCanvas, antialias: true, alpha: true, powerPreference: 'high-performance' }));
     r.setClearColor(0x000000, 0);
     r.setPixelRatio(1);
     r.localClippingEnabled = true;
@@ -213,8 +213,8 @@ export class LiveScan {
       this.phase = 'camera';
       this.#status('Requesting camera… tap “Allow” when asked');
       const video = IS_MOBILE
-        ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }
-        : { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } };
+        ? { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 }, frameRate: { ideal: 60, max: 90 } }
+        : { facingMode: 'user', width: { ideal: 960 }, height: { ideal: 540 }, frameRate: { ideal: 90, max: 120 } };   // fast camera → more tracking updates per second
       try {
         this.stream = await navigator.mediaDevices.getUserMedia({ video, audio: false });
       } catch (err) {
@@ -396,7 +396,7 @@ export class LiveScan {
       this.lastFrame.face = fr;
       this.#applyFace(fr, dt);
       // hands may still be loading; on phones run them every other frame to keep the frame rate up
-      if (this.handLm && (!IS_MOBILE || (this._n = (this._n || 0) + 1) % 2 === 0)) {
+      if (this.handLm && (this.fps > 50 || (this._n = (this._n || 0) + 1) % 2 === 0)) {
         const hr = this.handLm.detectForVideo(v, ts);
         this.lastFrame.hands = hr;
         this.#applyHands(hr, dt);
