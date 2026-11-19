@@ -46,8 +46,8 @@ export class Atlas {
 
   /* ───────── three.js setup ───────── */
   #initThree() {
-    const r = (this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true, preserveDrawingBuffer: true, powerPreference: 'high-performance' }));
-    r.setPixelRatio(Math.min(devicePixelRatio, 2));
+    const r = (this.renderer = new THREE.WebGLRenderer({ canvas: this.canvas, antialias: true, alpha: true, powerPreference: 'high-performance' }));
+    r.setPixelRatio(Math.min(devicePixelRatio, /Android|iPhone|iPad|iPod/i.test(navigator.userAgent) ? 1.5 : 2));
     r.toneMapping = THREE.ACESFilmicToneMapping;
     r.toneMappingExposure = 1.05;
     r.localClippingEnabled = false;
@@ -113,15 +113,27 @@ export class Atlas {
     this.sex = sex;
     this.ready = false;
     const loading = this.$('atlas-loading'), bar = this.$('atlas-loading-bar'), txt = this.$('atlas-loading-text');
-    loading.classList.remove('done');
+    const token = (this.loadId = (this.loadId || 0) + 1);      // a newer load() call supersedes this one
+    loading.classList.remove('done', 'error'); loading.onclick = null;
     txt.textContent = `Loading ${sex} anatomy…`;
     bar.style.width = '5%';
     // clear previous
     this.root.clear(); this.jointGroup.clear(); this.meshes.clear(); this.selected = null;
 
-    const scene = await loadModel(sex, (e) => {
-      if (e.lengthComputable) bar.style.width = `${Math.max(5, (e.loaded / e.total) * 100)}%`;
-    });
+    let scene;
+    try {
+      scene = await loadModel(sex, (e) => {
+        if (token === this.loadId && e.lengthComputable) bar.style.width = `${Math.max(5, (e.loaded / e.total) * 100)}%`;
+      });
+    } catch (err) {
+      if (token !== this.loadId) return;
+      console.error(err);
+      loading.classList.add('error'); bar.style.width = '0%';
+      txt.textContent = 'Could not load the anatomy model — check your connection. Tap here to retry.';
+      loading.onclick = () => this.load(sex);
+      return;
+    }
+    if (token !== this.loadId) return;
     this.root.add(scene);
     this.byKey = indexMeshes(scene);
 

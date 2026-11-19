@@ -4,9 +4,11 @@ A dark-themed 3D human anatomy website that runs entirely in the browser.
 
 - **3D Atlas** — male and female bodies with 135 named structures (skin, skeleton, muscles, organs, vessels, nerves, 12 joint hotspots). Rotate, zoom, click any structure, search, toggle systems, fade layers, explode the body, cut sections, save a PNG.
 - **Live Scan** — point a webcam at yourself. The skull, brain, jaw, eyes and tongue follow your head; open your mouth and the jaw opens; hold up a hand and its bones follow every finger. Video is processed on your device and never uploaded.
+- **Full body mode** — in Live Scan, switch to *Full body*: skeleton and organs follow your whole body (MediaPipe Pose). Stand 2–3 m back so your whole body is in frame.
+- **Installable & offline** — a service worker caches the app, models and tracking files after the first visit; install it from your browser menu.
 - **Try demo** — a simulated head and hands, so the page works without a camera.
 
-Built with Vite, Three.js and MediaPipe Tasks (Face Landmarker + Hand Landmarker). No backend.
+Built with Vite, Three.js and MediaPipe Tasks (Face, Hand and Pose Landmarker). No backend.
 
 ## Run locally
 
@@ -33,6 +35,7 @@ On first use the browser downloads the two MediaPipe model files (about 15 MB) f
 
 - `face_landmarker.task`
 - `hand_landmarker.task`
+- `pose_landmarker_lite.task` (Full body mode)
 
 and place them in `public/models/mediapipe/`; the app uses local copies when they exist.
 The MediaPipe WASM runtime is already self-hosted in `public/wasm/`.

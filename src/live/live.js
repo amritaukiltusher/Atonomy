@@ -4,10 +4,13 @@ import { HeadRig, HEAD_LAYERS } from './headRig.js';
 import { HandRig, REST_LEFT, mirrorRest, handPointsFromMediaPipe } from './handRig.js';
 import { fitHead, parseFaceMatrix, AXIS_CANDIDATES, HEAD_FEATURES, HEAD_FEATURE_VECS } from './fit.js';
 import { OneEuroVec, QuatFilter, clamp } from './filters.js';
+import { BodyRig, BODY_LAYERS, posePointsFromMediaPipe, syntheticPose, POSE_EDGES } from './bodyRig.js';
 
 const GCS = 'https://storage.googleapis.com/mediapipe-models';
 const FACE_URL = `${GCS}/face_landmarker/face_landmarker/float16/1/face_landmarker.task`;
 const HAND_URL = `${GCS}/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task`;
+const POSE_URL = `${GCS}/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task`;
+const NO_VIS = new Array(33).fill(0);
 
 const FOV = 63;                                        // MediaPipe's face-geometry camera assumption (vertical, degrees)
 const TAN_V = Math.tan((FOV * Math.PI) / 360);
@@ -31,6 +34,7 @@ const store = {
 };
 
 async function pickModelUrl(local, remote) {
+  if (!__LOCAL_TASKS__.includes(local.split('/').pop())) return remote;   // nothing bundled → straight to the CDN
   try {
     const r = await fetch(local, { method: 'GET' });
     const type = r.headers.get('content-type') || '';
@@ -44,12 +48,16 @@ export class LiveScan {
     this.stage = $('stage'); this.video = $('live-video');
     this.glCanvas = $('live-gl'); this.hud = $('live-hud'); this.hudCtx = this.hud.getContext('2d');
     this.mode = null;              // 'camera' | 'demo' | null
+    this.runId = 0;                // bumped by every start/stop so an abandoned start can tell it was cancelled
     this.running = false;
     this.W = 1280; this.H = 720;
     this.opts = {
       opacity: store.get('opacity', 70), mirror: store.get('mirror', true), points: store.get('points', false), swap: store.get('swap', false),
       layers: store.get('layers', Object.fromEntries(HEAD_LAYERS.map((l) => [l.id, l.on]))),
       align: store.get('align', { scale: 100, dy: 0, dz: 0 }),
+      trackMode: store.get('trackMode', 'face'),
+      bodyLayers: store.get('bodyLayers', Object.fromEntries(BODY_LAYERS.map((l) => [l.id, l.on]))),
+      flipz: store.get('flipz', false),
     };
     this.lastFrame = { face: null, hands: [] };
     this.fps = 0;
@@ -83,21 +91,9 @@ export class LiveScan {
   }
 
   #initUI() {
-    // layers
-    const wrap = $('live-layers');
-    HEAD_LAYERS.forEach((l) => {
-      const row = document.createElement('label');
-      row.className = 'layer';
-      row.innerHTML = `<input type="checkbox" ${this.opts.layers[l.id] ? 'checked' : ''} /><span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${l.color};margin-right:7px"></i>${l.label}</span>`;
-      row.querySelector('input').addEventListener('change', (e) => {
-        this.opts.layers[l.id] = e.target.checked; store.set('layers', this.opts.layers);
-        row.classList.toggle('on', e.target.checked); this.head?.setLayers(this.opts.layers);
-      });
-      row.classList.toggle('on', !!this.opts.layers[l.id]);
-      wrap.appendChild(row);
-    });
+    this.#buildLayers();
     const bindRange = (id, key, fn) => { const el = $(id); el.value = key.split('.').reduce((o, k) => o[k], this.opts); el.addEventListener('input', () => { fn(Number(el.value)); }); };
-    bindRange('live-opacity', 'opacity', (v) => { this.opts.opacity = v; store.set('opacity', v); this.head?.setOpacity(v / 100); this.#applyHandOpacity(); });
+    bindRange('live-opacity', 'opacity', (v) => { this.opts.opacity = v; store.set('opacity', v); this.head?.setOpacity(v / 100); this.body?.setOpacity(v / 100); this.#applyHandOpacity(); });
     const al = (k) => (v) => { this.opts.align[k] = v; store.set('align', this.opts.align); this.#applyAlign(); };
     bindRange('al-scale', 'align.scale', al('scale'));
     bindRange('al-y', 'align.dy', al('dy'));
@@ -110,13 +106,58 @@ export class LiveScan {
     chk('opt-mirror', 'mirror', () => this.#applyMirror());
     chk('opt-points', 'points');
     chk('opt-swap', 'swap');
+    chk('opt-flipz', 'flipz');
     this.#applyMirror();
+    document.querySelectorAll('[data-mode]').forEach((b) => b.addEventListener('click', () => this.#setMode(b.dataset.mode)));
+    this.#syncModeUI();
 
     $('inapp-note').hidden = !IN_APP;
     $('btn-start').addEventListener('click', () => this.startCamera());
     $('btn-demo').addEventListener('click', () => this.startDemo());
     $('btn-stop').addEventListener('click', () => this.stop());
     $('btn-live-shot').addEventListener('click', () => this.screenshot());
+  }
+
+  /** (Re)builds the layer toggles for the current tracking mode. */
+  #buildLayers() {
+    const body = this.opts.trackMode === 'body';
+    const defs = body ? BODY_LAYERS : HEAD_LAYERS;
+    const state = body ? this.opts.bodyLayers : this.opts.layers;
+    const wrap = $('live-layers');
+    wrap.innerHTML = '';
+    defs.forEach((l) => {
+      const row = document.createElement('label');
+      row.className = 'layer';
+      row.innerHTML = `<input type="checkbox" ${state[l.id] ? 'checked' : ''} /><span><i style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${l.color};margin-right:7px"></i>${l.label}</span>`;
+      row.querySelector('input').addEventListener('change', (e) => {
+        state[l.id] = e.target.checked; store.set(body ? 'bodyLayers' : 'layers', state);
+        row.classList.toggle('on', e.target.checked); (body ? this.body : this.head)?.setLayers(state);
+      });
+      row.classList.toggle('on', !!state[l.id]);
+      wrap.appendChild(row);
+    });
+  }
+
+  #syncModeUI() {
+    const body = this.opts.trackMode === 'body';
+    document.querySelectorAll('[data-mode]').forEach((b) => b.classList.toggle('on', b.dataset.mode === this.opts.trackMode));
+    $('lbl-face').textContent = body ? 'Body' : 'Face';
+    $('card-title').textContent = body ? 'See inside your whole body' : 'See inside your own head';
+    $('card-desc').textContent = body
+      ? 'Stand 2–3 metres back so your whole body is in the picture. The skeleton and organs follow your arms, legs, torso and head in real time.'
+      : 'Point your webcam at your face. The skull, brain, jaw and eyes follow you in real time — open your mouth and the jaw opens, hold up a hand and its bones appear.';
+    $('row-hands').hidden = body; $('row-swap').hidden = body; $('block-align').hidden = body; $('row-flipz').hidden = !body;
+    this.#buildLayers();
+  }
+
+  async #setMode(mode) {
+    if (mode === this.opts.trackMode) return;
+    this.opts.trackMode = mode; store.set('trackMode', mode);
+    this.#syncModeUI();
+    const prev = this.mode;
+    if (!prev) return;
+    this.stop(true);                                     // restart the same source (camera / demo) in the new mode
+    if (prev === 'camera') await this.startCamera(); else await this.startDemo();
   }
 
   #applyMirror() { this.stage.classList.toggle('mirror', this.opts.mirror); }
@@ -148,6 +189,16 @@ export class LiveScan {
     this.lostFace = 99; this.lostHand = { left: 99, right: 99 };
   }
 
+  async #ensureBody() {
+    if (this.body) return;
+    this.#status('Loading 3D anatomy…');
+    this.body = new BodyRig(await loadModel('male'));
+    this.scene.add(this.body.group);
+    this.body.setLayers(this.opts.bodyLayers); this.body.setOpacity(this.opts.opacity / 100);
+    this.fBody = new OneEuroVec(99, 1.2, 15.0);
+    this.bodyPts = Array.from({ length: 33 }, () => new THREE.Vector3());
+  }
+
   /* ───────── start / stop ───────── */
   async startCamera() {
     this.#error(null);
@@ -157,6 +208,7 @@ export class LiveScan {
         : 'Camera access needs a secure page (https:// or localhost) and a browser that supports getUserMedia.');
     }
     $('btn-start').disabled = true;
+    const run = ++this.runId;
     try {
       this.phase = 'camera';
       this.#status('Requesting camera… tap “Allow” when asked');
@@ -169,6 +221,7 @@ export class LiveScan {
         if (err?.name !== 'OverconstrainedError' && err?.name !== 'NotFoundError') throw err;
         this.stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });   // any camera will do
       }
+      if (run !== this.runId) { this.stream?.getTracks().forEach((t) => t.stop()); this.stream = null; return; }   // cancelled while the permission prompt was open
       this.mode = 'camera';
       const v = this.video;
       v.muted = true; v.setAttribute('playsinline', ''); v.setAttribute('webkit-playsinline', '');
@@ -181,17 +234,30 @@ export class LiveScan {
       $('stage-empty').hidden = true;                    // show the live preview right away
       $('btn-stop').disabled = false;
 
+      if (this.opts.trackMode === 'body') {
+        this.phase = 'anatomy';
+        this.#status('Camera on ✓   Loading 3D anatomy…');
+        await this.#ensureBody();
+        if (run !== this.runId) return;
+        this.phase = 'tracker';
+        this.#status('Camera on ✓   Anatomy ✓   Loading body tracker (first time ~6 MB)…');
+        await withTimeout(this.#initPose(), 120000, 'The body tracker download');
+        if (run !== this.runId) return;
+        this.#begin();
+        return;
+      }
       this.phase = 'anatomy';
       this.#status('Camera on ✓   Loading 3D anatomy…');
       await this.#ensureRigs();
-      if (this.mode !== 'camera') return;
+      if (run !== this.runId) return;
       this.phase = 'tracker';
       this.#status('Camera on ✓   Anatomy ✓   Loading face tracker (first time ~10 MB)…');
       await withTimeout(this.#initFace(), 120000, 'The face tracker download');
-      if (this.mode !== 'camera') return;
+      if (run !== this.runId) return;
       this.#begin();
       this.#initHandsInBackground();
     } catch (e) {
+      if (run !== this.runId) return;
       console.error(e);
       this.#fail(e);
     } finally {
@@ -202,31 +268,38 @@ export class LiveScan {
   async startDemo() {
     this.#error(null);
     this.stop(true);
+    const run = ++this.runId;
     try {
       this.mode = 'demo';
       this.video.style.display = 'none';
       this.stage.classList.add('demo');
-      this.#resize(1280, 720);
-      await this.#ensureRigs();
+      const portrait = this.stage.clientHeight > this.stage.clientWidth * 1.1;   // phones: use a portrait canvas
+      this.#resize(portrait ? 720 : 1280, portrait ? 1280 : 720);
+      await (this.opts.trackMode === 'body' ? this.#ensureBody() : this.#ensureRigs());
+      if (run !== this.runId) return;
       this.#begin();
-    } catch (e) { console.error(e); this.#fail(e); }
+    } catch (e) { if (run !== this.runId) return; console.error(e); this.#fail(e); }
   }
 
   #begin() {
     $('stage-empty').hidden = true;
     $('btn-stop').disabled = false; $('btn-live-shot').disabled = false;
-    this.#status(this.mode === 'demo' ? 'Demo — simulated head and hands' : 'Tracking — show your face to the camera');
+    const body = this.opts.trackMode === 'body';
+    this.head && (this.head.group.visible = false); this.hands?.forEach((h) => { h.mesh.visible = false; }); this.body?.hide();
+    this.#status(this.mode === 'demo' ? (body ? 'Demo — simulated full body' : 'Demo — simulated head and hands') : (body ? 'Tracking — step back so your whole body is in view' : 'Tracking — show your face to the camera'));
     this.running = true; this.lastT = performance.now() / 1000; this.lastVideoT = -1; this.lastTs = 0;
     this.axisFix = null; this.calib = { n: 0, err: AXIS_CANDIDATES.map(() => 0) };
     requestAnimationFrame(this._tick);
   }
 
   stop(keepUI = false) {
+    this.runId++;
     this.running = false;
     this.stream?.getTracks().forEach((t) => t.stop());
     this.stream = null; this.video.srcObject = null;
     if (this.head) this.head.group.visible = false;
     this.hands?.forEach((h) => { h.mesh.visible = false; });
+    this.body?.hide();
     this.hudCtx.clearRect(0, 0, this.W, this.H);
     this.renderer.clear();
     this.mode = null;
@@ -242,7 +315,7 @@ export class LiveScan {
 
   async #trackerKit() {
     if (this.kit) return this.kit;
-    const { FilesetResolver, FaceLandmarker, HandLandmarker } = await import('@mediapipe/tasks-vision');
+    const { FilesetResolver, FaceLandmarker, HandLandmarker, PoseLandmarker } = await import('@mediapipe/tasks-vision');
     const fileset = await FilesetResolver.forVisionTasks(`${BASE}wasm`);
     const make = async (Cls, url, extra) => {
       for (const delegate of ['GPU', 'CPU']) {
@@ -250,7 +323,14 @@ export class LiveScan {
         catch (e) { if (delegate === 'CPU') throw e; console.warn(`${Cls.name}: GPU delegate failed, retrying on CPU`, e); }
       }
     };
-    return (this.kit = { FaceLandmarker, HandLandmarker, make });
+    return (this.kit = { FaceLandmarker, HandLandmarker, PoseLandmarker, make });
+  }
+
+  async #initPose() {
+    if (this.pose) return;
+    const { PoseLandmarker, make } = await this.#trackerKit();
+    const url = await pickModelUrl(`${BASE}models/mediapipe/pose_landmarker_lite.task`, POSE_URL);
+    this.pose = await make(PoseLandmarker, url, { numPoses: 1 });
   }
 
   async #initFace() {
@@ -292,8 +372,11 @@ export class LiveScan {
     if (((nowMs / 250) | 0) !== this._lastStat) {
       this._lastStat = (nowMs / 250) | 0;
       $('stat-fps').textContent = this.fps.toFixed(0);
-      $('stat-face').textContent = this.head.group.visible ? 'tracking' : 'searching';
-      $('stat-hands').textContent = String(this.hands.filter((h) => h.mesh.visible).length);
+      if (this.opts.trackMode === 'body') $('stat-face').textContent = this.body?.group.visible ? 'tracking' : 'searching';
+      else {
+        $('stat-face').textContent = this.head.group.visible ? 'tracking' : 'searching';
+        $('stat-hands').textContent = String(this.hands.filter((h) => h.mesh.visible).length);
+      }
     }
   }
 
@@ -303,6 +386,12 @@ export class LiveScan {
     if (v.currentTime !== this.lastVideoT) {
       this.lastVideoT = v.currentTime;
       const ts = Math.max(performance.now(), this.lastTs + 1); this.lastTs = ts;
+      if (this.opts.trackMode === 'body') {
+        const pr = this.pose.detectForVideo(v, ts);
+        this.lastFrame.pose = pr;
+        this.#applyPose(pr, dt);
+        return;
+      }
       const fr = this.face.detectForVideo(v, ts);
       this.lastFrame.face = fr;
       this.#applyFace(fr, dt);
@@ -383,7 +472,26 @@ export class LiveScan {
   }
 
   /* ───────── demo (no camera) ───────── */
+  /** Feeds one MediaPipe pose result through the same path for real tracking and the demo. */
+  #applyPose(pr, dt) {
+    const lm = pr?.landmarks?.[0], wd = pr?.worldLandmarks?.[0];
+    const res = lm && wd ? posePointsFromMediaPipe(lm, wd, TAN_V, this.W / this.H, this.opts.flipz, this.bodyPts) : null;
+    if (!res) { this.lostBody = (this.lostBody || 0) + dt; if (this.lostBody > 0.5) this.fBody.reset(); this.body.update(this.bodyPts, NO_VIS, dt); return; }
+    this.lostBody = 0;
+    const flat = new Array(99);
+    res.P.forEach((p, i) => { flat[i * 3] = p.x; flat[i * 3 + 1] = p.y; flat[i * 3 + 2] = p.z; });
+    this.fBody.filter(flat, dt, flat);
+    res.P.forEach((p, i) => p.set(flat[i * 3], flat[i * 3 + 1], flat[i * 3 + 2]));
+    this.body.update(res.P, res.vis, dt);
+  }
+
   #demo(t, dt) {
+    if (this.opts.trackMode === 'body') {
+      const sp = syntheticPose(this.body, t, TAN_V, this.W / this.H, this.demoAmp ?? 1);
+      this.lastFrame = { pose: { landmarks: [sp.landmarks], worldLandmarks: [sp.worldLandmarks] } };
+      this.#applyPose(this.lastFrame.pose, dt);
+      return;
+    }
     const aspect = this.W / this.H;
     // ground-truth head transform
     const euler = new THREE.Euler(0.18 * Math.sin(t * 1.1), 0.55 * Math.sin(t * 0.7), 0.1 * Math.sin(t * 0.5), 'YXZ');
@@ -429,7 +537,16 @@ export class LiveScan {
   #drawHud() {
     const ctx = this.hudCtx, { W, H } = this;
     ctx.clearRect(0, 0, W, H);
-    if (!this.opts.points || this.mode !== 'camera') return;
+    if (!this.opts.points) return;
+    if (this.opts.trackMode === 'body') {
+      const lm = this.lastFrame.pose?.landmarks?.[0];
+      if (!lm) return;
+      ctx.strokeStyle = 'rgba(125,255,168,0.8)'; ctx.lineWidth = 2; ctx.fillStyle = '#7dffa8';
+      for (const [a, b] of POSE_EDGES) { ctx.beginPath(); ctx.moveTo(lm[a].x * W, lm[a].y * H); ctx.lineTo(lm[b].x * W, lm[b].y * H); ctx.stroke(); }
+      for (const p of lm) ctx.fillRect(p.x * W - 2, p.y * H - 2, 4, 4);
+      return;
+    }
+    if (this.mode !== 'camera') return;
     const fr = this.lastFrame;
     ctx.fillStyle = 'rgba(77,225,255,0.55)';
     const face = fr.face?.faceLandmarks?.[0];

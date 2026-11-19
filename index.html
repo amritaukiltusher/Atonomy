@@ -6,6 +6,7 @@
   <title>Anatomy Live — Interactive 3D Human Anatomy</title>
   <meta name="description" content="Explore the human body in 3D — skin, muscles, skeleton, organs, vessels and nerves — and see the skull, brain and hand bones tracked live on your webcam. Runs entirely in your browser." />
   <meta name="theme-color" content="#06080c" />
+  <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%2306080c'/%3E%3Cpath d='M16 5c-4.4 0-7.5 3-7.5 7 0 2.2.9 3.7 2 4.8V21h11v-4.2c1.1-1.1 2-2.6 2-4.8 0-4-3.1-7-7.5-7z' fill='none' stroke='%234de1ff' stroke-width='2'/%3E%3Cpath d='M12 25h8' stroke='%234de1ff' stroke-width='2' stroke-linecap='round'/%3E%3C/svg%3E" />
 </head>
 <body>
@@ -85,8 +86,12 @@
           <canvas id="live-hud"></canvas>
           <div class="stage-empty" id="stage-empty">
             <div class="stage-card">
-              <h2>See inside your own head</h2>
-              <p>Point your webcam at your face. The skull, brain, jaw and eyes follow you in real time — open your mouth and the jaw opens, hold up a hand and its bones appear.</p>
+              <h2 id="card-title">See inside your own head</h2>
+              <p id="card-desc">Point your webcam at your face. The skull, brain, jaw and eyes follow you in real time — open your mouth and the jaw opens, hold up a hand and its bones appear.</p>
+              <div class="seg mode-seg" id="mode-seg-card" role="group" aria-label="Tracking mode">
+                <button data-mode="face" class="on">Face &amp; hands <small>close-up</small></button>
+                <button data-mode="body">Full body <small>step back 2–3 m</small></button>
+              </div>
               <p class="card-note" id="inapp-note" hidden>You seem to be inside an app's built-in browser, which often blocks the camera. If “Start camera” doesn't work, open this page in Chrome or Safari.</p>
               <div class="cta">
                 <button class="btn primary" id="btn-start">Start camera</button>
@@ -107,9 +112,13 @@
               <button class="btn small" id="btn-stop" disabled>Stop</button>
               <button class="btn small" id="btn-live-shot" disabled>Save PNG</button>
             </div>
+            <div class="seg small mode-seg" id="mode-seg" role="group" aria-label="Tracking mode">
+              <button data-mode="face" class="on">Face &amp; hands</button>
+              <button data-mode="body">Full body</button>
+            </div>
             <div class="stat"><span>FPS</span><b id="stat-fps">–</b></div>
-            <div class="stat"><span>Face</span><b id="stat-face">–</b></div>
-            <div class="stat"><span>Hands</span><b id="stat-hands">–</b></div>
+            <div class="stat"><span id="lbl-face">Face</span><b id="stat-face">–</b></div>
+            <div class="stat" id="row-hands"><span>Hands</span><b id="stat-hands">–</b></div>
           </div>
           <div class="block">
             <div class="block-title">Layers</div>
@@ -120,9 +129,10 @@
             <label class="slider"><span>Overlay opacity</span><input id="live-opacity" type="range" min="15" max="100" value="70" /></label>
             <label class="check"><input type="checkbox" id="opt-mirror" checked /> Mirror view (selfie)</label>
             <label class="check"><input type="checkbox" id="opt-points" /> Show tracking points</label>
-            <label class="check"><input type="checkbox" id="opt-swap" /> Swap left / right hand</label>
+            <label class="check" id="row-swap"><input type="checkbox" id="opt-swap" /> Swap left / right hand</label>
+            <label class="check" id="row-flipz" hidden><input type="checkbox" id="opt-flipz" /> Flip body depth (if leaning looks reversed)</label>
           </div>
-          <div class="block">
+          <div class="block" id="block-align">
             <div class="block-title">Fine alignment</div>
             <label class="slider"><span>Size</span><input id="al-scale" type="range" min="85" max="120" value="100" /></label>
             <label class="slider"><span>Up / down</span><input id="al-y" type="range" min="-30" max="30" value="0" /></label>
@@ -140,7 +150,7 @@
         <p class="lead">An open, dark-themed 3D human anatomy explorer that runs entirely in your browser — no install, no account, no server.</p>
         <div class="cards">
           <article><h3>3D Atlas</h3><p>More than 130 named structures across skin, muscles, skeleton, organs, vessels and nerves, in male and female reference bodies. Toggle systems, search, isolate, explode, and cut sections through the body.</p></article>
-          <article><h3>Live Scan</h3><p>Your webcam is tracked with MediaPipe (face mesh, blendshapes and hands). A skull, brain, jaw, eyes and hand skeleton are drawn on top of you and follow your movement.</p></article>
+          <article><h3>Live Scan</h3><p>Your webcam is tracked with MediaPipe. Close up, a skull, brain, jaw, eyes and hand skeleton follow your face and hands; step back and the full skeleton and organs follow your whole body.</p></article>
           <article><h3>Private by design</h3><p>Camera frames never leave your computer. Everything — tracking and rendering — happens locally with WebGL and WebAssembly.</p></article>
         </div>
         <h3>Credits &amp; licences</h3>

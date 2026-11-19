@@ -246,3 +246,14 @@ input[type="range"]:disabled { opacity: 0.35; }
   .live-status { font-size: 13px; }
   .stage-empty { padding: 14px; }
 }
+
+/* live: tracking-mode switch */
+.mode-seg { margin: 0 auto 14px; max-width: 420px; }
+.mode-seg button small { display: block; font-size: 11px; opacity: 0.7; }
+.live-panel .mode-seg { max-width: none; margin: 0 0 10px; }
+.live-panel .mode-seg button small { display: none; }
+.check[hidden], .stat[hidden], .block[hidden] { display: none; }
+
+.loading.error { cursor: pointer; }
+.loading.error .spinner { display: none; }
+.loading.error #atlas-loading-text { color: #ffc6cc; max-width: 320px; text-align: center; }

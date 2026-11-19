@@ -30,7 +30,9 @@ const cache = new Map();
 export function loadModel(sex, onProgress) {
   if (!cache.has(sex)) {
     const loader = new GLTFLoader().setMeshoptDecoder(MeshoptDecoder);
-    cache.set(sex, loader.loadAsync(`${BASE}models/anatomy-${sex}.glb`, onProgress));
+    const p = loader.loadAsync(`${BASE}models/anatomy-${sex}.glb`, onProgress);
+    cache.set(sex, p);
+    p.catch(() => cache.delete(sex));          // a failed download must not poison later attempts
   }
   return cache.get(sex).then((g) => {
     const scene = g.scene.clone(true);
