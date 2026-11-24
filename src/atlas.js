@@ -146,7 +146,12 @@ export class Atlas {
       mesh.geometry.computeBoundingBox();
       const c = new THREE.Vector3(); new THREE.Box3().setFromObject(mesh).getCenter(c);
       mesh.userData.center = c;
-      mesh.material = key === 'skin' ? ghostSkinMaterial() : scanMaterial(s.color, { opacity: 1, rim: s.system === 'skeleton' ? 0.25 : 0.4 });
+      if (key === 'skin') {
+        // solid, lit human skin when fully shown; a see-through warm "ghost" when faded so organs stay visible
+        mesh.userData.solid = scanMaterial('#e2ab8b', { opacity: 1, rim: 0.12, rimColor: '#ffd9c4', roughness: 0.62 });
+        mesh.userData.ghost = ghostSkinMaterial('#f2b896');
+        mesh.material = mesh.userData.ghost;
+      } else mesh.material = scanMaterial(s.color, { opacity: 1, rim: s.system === 'skeleton' ? 0.25 : 0.4 });
       mesh.renderOrder = key === 'skin' ? 5 : 0;
       this.meshes.set(key, mesh);
     }
@@ -301,8 +306,10 @@ export class Atlas {
       const dim = focus && focus !== key && s.system !== 'skin';
       const op = st.opacity * (dim ? 0.18 : 1);
       if (key === 'skin') {
-        mesh.material.uniforms.uOpacity.value = st.opacity >= 0.95 ? 1.0 : st.opacity * 1.6;
-        mesh.material.uniforms.uBase.value = st.opacity >= 0.95 ? 0.9 : 0.05;
+        const solid = st.opacity >= 0.95;
+        mesh.material = solid ? mesh.userData.solid : mesh.userData.ghost;
+        mesh.renderOrder = solid ? 0 : 5;
+        if (!solid) { mesh.material.uniforms.uOpacity.value = st.opacity * 1.6; mesh.material.uniforms.uBase.value = 0.05; }
       } else {
         const m = mesh.material;
         m.opacity = op; m.transparent = op < 0.999; m.depthWrite = op >= 0.999; m.needsUpdate = true;
