@@ -46,6 +46,31 @@ if (tabFromHash() !== 'atlas') showTab(tabFromHash());
 window.__atlas = atlas; // handy for debugging in the console
 
 // Offline support: cache the app, models and tracking files after the first visit.
-if ('serviceWorker' in navigator && location.protocol === 'https:') {
+if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
   window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+}
+
+// ── Install button: native prompt on Chrome/Edge/Android, instructions on iPhone/iPad Safari ──
+{
+  const btn = $('btn-install'), help = $('install-help');
+  const standalone = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.maxTouchPoints > 1 && /Macintosh/.test(navigator.userAgent));
+  let deferred = null;
+  window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferred = e; if (!standalone()) btn.hidden = false; });
+  window.addEventListener('appinstalled', () => { deferred = null; btn.hidden = true; });
+  if (isIOS && !standalone()) btn.hidden = false;
+  btn.addEventListener('click', async () => {
+    if (deferred) {
+      deferred.prompt();
+      await deferred.userChoice.catch(() => {});
+      deferred = null; btn.hidden = true;
+    } else {
+      $('install-help-text').innerHTML = isIOS
+        ? 'Tap the <b>Share</b> button in Safari, then <b>Add to Home Screen</b>.<br><span class="bn">Safari-তে <b>Share</b> চাপুন, তারপর <b>Add to Home Screen</b>।</span>'
+        : 'Open your browser menu and choose <b>Install app</b> / <b>Add to Home screen</b>.<br><span class="bn">ব্রাউজারের মেনু থেকে <b>Install app</b> / <b>Add to Home screen</b> বেছে নিন।</span>';
+      help.hidden = false;
+    }
+  });
+  $('install-close').addEventListener('click', () => { help.hidden = true; });
+  help.addEventListener('click', (e) => { if (e.target === help) help.hidden = true; });
 }

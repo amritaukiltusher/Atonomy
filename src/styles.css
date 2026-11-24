@@ -261,3 +261,14 @@ input[type="range"]:disabled { opacity: 0.35; }
 .bn { display: block; font-size: 13.8px; font-weight: 500; color: var(--accent, #4de1ff); opacity: .85; line-height: 1.35; font-family: 'Noto Sans Bengali','Hind Siliguri','Segoe UI',system-ui,sans-serif; }
 .bn-title { margin: -4px 0 8px; font-size: 18px; color: var(--accent, #4de1ff); font-family: 'Noto Sans Bengali','Hind Siliguri','Segoe UI',system-ui,sans-serif; }
 #callout-text .bn { color: #bff4ff; }
+
+.install-btn { margin-right: 10px; background: var(--accent-soft); color: var(--accent); border: 1px solid rgba(77,225,255,.5); border-radius: 99px; padding: 6px 14px; font-weight: 600; cursor: pointer; white-space: nowrap; animation: pulse-i 2.4s ease-in-out infinite; }
+.install-btn small { font-family: 'Noto Sans Bengali','Hind Siliguri',system-ui,sans-serif; font-weight: 500; opacity: .85; margin-left: 4px; }
+.install-btn:hover { background: rgba(77,225,255,.22); }
+@keyframes pulse-i { 0%,100% { box-shadow: 0 0 0 0 rgba(77,225,255,.35); } 50% { box-shadow: 0 0 0 6px rgba(77,225,255,0); } }
+.topbar-right { display: flex; align-items: center; }
+.modal { position: fixed; inset: 0; background: rgba(2,4,8,.7); display: grid; place-items: center; z-index: 50; padding: 16px; }
+.modal[hidden] { display: none; }
+.modal-card { background: var(--panel); border: 1px solid var(--line-2); border-radius: 14px; padding: 20px; max-width: 420px; line-height: 1.6; }
+.modal-card h3 { margin: 0 0 10px; color: var(--accent); }
+@media (max-width: 800px) { .install-btn small { display: none; } .install-btn { padding: 5px 10px; margin-right: 6px; } }
