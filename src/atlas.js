@@ -5,6 +5,7 @@ import {
   loadModel, indexMeshes, scanMaterial, setRim, ghostSkinMaterial,
 } from './anatomy.js';
 import { describe } from './info.js';
+import { bnName, BN_SYSTEM, BN_CATEGORY } from './bn.js';
 
 const EYE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M1.5 12S5.5 5 12 5s10.5 7 10.5 7-4 7-10.5 7S1.5 12 1.5 12z"/><circle cx="12" cy="12" r="3"/></svg>';
 const ACCENT = new THREE.Color('#4de1ff');
@@ -237,13 +238,13 @@ export class Atlas {
     for (const sys of SYSTEMS) {
       const items = present.filter((s) => s.system === sys).sort((a, b) => a.label.localeCompare(b.label));
       if (!items.length) continue;
-      const head = document.createElement('div'); head.className = 'group-head'; head.textContent = `${SYSTEM_LABELS[sys]} · ${items.length}`; head.dataset.sys = sys;
+      const head = document.createElement('div'); head.className = 'group-head'; head.textContent = `${SYSTEM_LABELS[sys]} (${BN_SYSTEM[sys]}) · ${items.length}`; head.dataset.sys = sys;
       list.appendChild(head);
       for (const s of items) {
         const row = document.createElement('div');
         row.className = 'srow'; row.dataset.key = s.key; row.dataset.sys = sys;
         row.style.setProperty('--c', s.color);
-        row.innerHTML = `<span class="dot"></span><span class="lbl">${s.label}</span><button class="mini-eye" aria-label="Toggle ${s.label}">${EYE_SVG}</button>`;
+        row.innerHTML = `<span class="dot"></span><span class="lbl">${s.label}<small class="bn">${bnName(s.key)}</small></span><button class="mini-eye" aria-label="Toggle ${s.label}">${EYE_SVG}</button>`;
         row.addEventListener('click', (e) => {
           if (e.target.closest('.mini-eye')) {
             if (this.hiddenKeys.has(s.key)) this.hiddenKeys.delete(s.key); else this.hiddenKeys.add(s.key);
@@ -265,7 +266,7 @@ export class Atlas {
     const groups = new Map();
     list.querySelectorAll('.srow').forEach((r) => {
       const s = BY_KEY[r.dataset.key];
-      const hit = !q || s.label.toLowerCase().includes(q) || s.category.toLowerCase().includes(q) || s.key.includes(q);
+      const hit = !q || s.label.toLowerCase().includes(q) || bnName(s.key).includes(q) || s.category.toLowerCase().includes(q) || s.key.includes(q);
       r.style.display = hit ? '' : 'none';
       if (hit) groups.set(r.dataset.sys, true);
     });
@@ -371,7 +372,7 @@ export class Atlas {
     }
     this.calloutPoint = key ? (point || this.meshes.get(key)?.userData.center.clone()) : null;
     this.$('callout').hidden = !key;
-    if (key) this.$('callout-text').textContent = BY_KEY[key].label;
+    if (key) this.$('callout-text').innerHTML = `${BY_KEY[key].label}<small class="bn">${bnName(key)}</small>`;
     const sel = this.$('struct-list').querySelector('.srow.sel');
     sel?.scrollIntoView({ block: 'nearest' });
   }
@@ -411,8 +412,8 @@ export class Atlas {
       dims = `${sz.x.toFixed(1)} × ${sz.y.toFixed(1)} × ${sz.z.toFixed(1)} cm`;
     }
     el.innerHTML = `
-      <h2>${s.label}</h2>
-      <div class="tags" style="--c:${s.color}"><span class="tag c">${SYSTEM_LABELS[s.system]}</span><span class="tag">${s.category}</span></div>
+      <h2>${s.label}</h2><div class="bn-title">${bnName(s.key)}</div>
+      <div class="tags" style="--c:${s.color}"><span class="tag c">${SYSTEM_LABELS[s.system]} · ${BN_SYSTEM[s.system]}</span><span class="tag">${s.category} · ${BN_CATEGORY[s.category] || ''}</span></div>
       <p>${describe(s)}</p>
       <div class="kv"><span>Bounding size</span><b>${dims}</b><span>Model</span><b>${this.sex} reference</b><span>ID</span><b>${s.key}</b></div>
       <div class="actions"><button class="btn small" id="i-focus">Focus</button><button class="btn small" id="i-hide">Hide</button><button class="btn small" id="i-clear">Clear</button></div>

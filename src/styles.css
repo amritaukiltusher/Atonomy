@@ -257,3 +257,7 @@ input[type="range"]:disabled { opacity: 0.35; }
 .loading.error { cursor: pointer; }
 .loading.error .spinner { display: none; }
 .loading.error #atlas-loading-text { color: #ffc6cc; max-width: 320px; text-align: center; }
+
+.bn { display: block; font-size: 11.5px; font-weight: 500; color: var(--accent, #4de1ff); opacity: .85; line-height: 1.35; font-family: 'Noto Sans Bengali','Hind Siliguri','Segoe UI',system-ui,sans-serif; }
+.bn-title { margin: -4px 0 8px; font-size: 15px; color: var(--accent, #4de1ff); font-family: 'Noto Sans Bengali','Hind Siliguri','Segoe UI',system-ui,sans-serif; }
+#callout-text .bn { color: #bff4ff; }
