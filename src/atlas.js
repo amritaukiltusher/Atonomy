@@ -53,7 +53,7 @@ export class Atlas {
     r.toneMappingExposure = 1.05;
     r.localClippingEnabled = false;
     this.scene = new THREE.Scene();
-    this.camera = new THREE.PerspectiveCamera(32, 1, 0.02, 60);
+    this.camera = new THREE.PerspectiveCamera(32, 1, 0.06, 24);
     this.camera.position.set(0, 1.1, 4.3);
 
     this.controls = new OrbitControls(this.camera, this.canvas);
@@ -149,6 +149,7 @@ export class Atlas {
       if (key === 'skin') {
         // solid, lit human skin when fully shown; a see-through warm "ghost" when faded so organs stay visible
         mesh.userData.solid = scanMaterial('#e2ab8b', { opacity: 1, rim: 0.12, rimColor: '#ffd9c4', roughness: 0.62 });
+        Object.assign(mesh.userData.solid, { polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -6 });   // skin wins depth ties with muscle/organ surfaces just beneath it
         mesh.userData.ghost = ghostSkinMaterial('#f2b896');
         mesh.material = mesh.userData.ghost;
       } else mesh.material = scanMaterial(s.color, { opacity: 1, rim: s.system === 'skeleton' ? 0.25 : 0.4 });
