@@ -47,7 +47,13 @@ export function loadModel(sex, onProgress) {
 /** Collect meshes by catalog key. */
 export function indexMeshes(scene) {
   const map = new Map();
-  scene.traverse((o) => { if (o.isMesh) map.set(o.name, o); });
+  scene.traverse((o) => {
+    if (!o.isMesh) return;
+    let key = o.name;
+    // GLTFLoader renames a node that shares its name with another node ("skin" group + "skin" mesh → "skin_1")
+    if (!BY_KEY[key]) { const m = key.match(/^(.+)_\d+$/); if (m && BY_KEY[m[1]] && !map.has(m[1])) key = m[1]; }
+    map.set(key, o);
+  });
   return map;
 }
 
